@@ -8,6 +8,14 @@ The helper is shared by the external-monitor-brightness applet and `cosmic-audio
 
 ## Install
 
+From the AUR:
+
+```bash
+yay -S cosmic-external-osd-git
+```
+
+Or build from source:
+
 ```bash
 just build-release
 sudo just install
@@ -17,21 +25,21 @@ The service starts automatically on its first D-Bus request. No logout is needed
 
 ## D-Bus API
 
-Service name: `io.github.cosmic_utils.ExternalMonitorOsd`  
-Object path: `/io/github/cosmic_utils/ExternalMonitorOsd`
+Service name: `io.github.cosmic_utils.ExternalOsd`  
+Object path: `/io/github/cosmic_utils/ExternalOsd`
 
 Brightness, from 0.0 to 1.0:
 
 ```bash
-busctl --user call io.github.cosmic_utils.ExternalMonitorOsd \
-  /io/github/cosmic_utils/ExternalMonitorOsd \
-  io.github.cosmic_utils.ExternalMonitorOsd ShowBrightness d 0.5
+busctl --user call io.github.cosmic_utils.ExternalOsd \
+  /io/github/cosmic_utils/ExternalOsd \
+  io.github.cosmic_utils.ExternalOsd ShowBrightness d 0.5
 ```
 
 Audio output name and icon:
 
 ```bash
-busctl --user call io.github.cosmic_utils.ExternalMonitorOsd \
-  /io/github/cosmic_utils/ExternalMonitorOsd \
-  io.github.cosmic_utils.ExternalMonitorOsd ShowAudio ss Speakers audio-speakers-symbolic
+busctl --user call io.github.cosmic_utils.ExternalOsd \
+  /io/github/cosmic_utils/ExternalOsd \
+  io.github.cosmic_utils.ExternalOsd ShowAudio ss Speakers audio-speakers-symbolic
 ```
