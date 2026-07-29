@@ -1,0 +1,16 @@
+[package]
+name = "cosmic-external-monitor-osd"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+tokio = { version = "1.52.1", features = ["time"] }
+tracing = "0.1"
+zbus = { version = "5.14", default-features = false, features = ["tokio"] }
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic"
+rev = "511384f6206527cf87369da67a9164831afbabef"
+default-features = false
+features = ["tokio", "wayland"]
