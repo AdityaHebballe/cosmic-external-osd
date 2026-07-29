@@ -1,8 +1,8 @@
-name := 'cosmic-external-monitor-osd'
+name := 'cosmic-external-osd'
 bin-src := 'target/release/' + name
 bin-dst := '/usr/bin/' + name
-service-src := 'res/io.github.cosmic_utils.ExternalMonitorOsd.service'
-service-dst := '/usr/share/dbus-1/services/io.github.cosmic_utils.ExternalMonitorOsd.service'
+service-src := 'res/io.github.cosmic_utils.ExternalOsd.service'
+service-dst := '/usr/share/dbus-1/services/io.github.cosmic_utils.ExternalOsd.service'
 
 default: build-release
 

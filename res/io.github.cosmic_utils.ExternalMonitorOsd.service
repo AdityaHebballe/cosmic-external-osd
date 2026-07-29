@@ -1,3 +1,0 @@
-[D-BUS Service]
-Name=io.github.cosmic_utils.ExternalMonitorOsd
-Exec=/usr/bin/cosmic-external-monitor-osd

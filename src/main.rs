@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use std::time::Duration;
 use std::{env, fs};
 
@@ -6,10 +7,12 @@ use std::os::unix::fs::FileTypeExt;
 
 use cosmic::app::{Core, Settings, Task};
 use cosmic::core::AppType;
+use cosmic::iced::event::{self, listen_with};
 use cosmic::iced::futures::{
     SinkExt, Stream,
     future::{AbortHandle, Aborted, abortable},
 };
+use cosmic::iced::platform_specific::shell::commands::corner_radius::corner_radius;
 use cosmic::iced::platform_specific::shell::commands::layer_surface::{
     Anchor, KeyboardInteractivity, Layer, destroy_layer_surface,
 };
@@ -18,21 +21,21 @@ use cosmic::iced::runtime::platform_specific::wayland::layer_surface::{
     IcedMargin, IcedOutput, SctkLayerSurfaceSettings,
 };
 use cosmic::iced::window::Id as SurfaceId;
-use cosmic::iced::{self, Alignment, Border, Length, Subscription, stream};
+use cosmic::iced::{self, Alignment, Border, Length, Limits, Size, Subscription, stream};
 use cosmic::surface::action::{LiveSettings, simple_layer_shell};
 use cosmic::{Apply, Element, widget};
 use tracing::error;
 
-const APP_ID: &str = "io.github.cosmic_utils.ExternalMonitorOsd";
-const OBJECT_PATH: &str = "/io/github/cosmic_utils/ExternalMonitorOsd";
-const OSD_RADIUS: u32 = 26;
-
+const APP_ID: &str = "io.github.cosmic_utils.ExternalOsd";
+const OBJECT_PATH: &str = "/io/github/cosmic_utils/ExternalOsd";
+static OSD_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::new("external-osd"));
 #[derive(Clone, Debug)]
 enum Msg {
     ShowBrightness(f64),
     ShowAudio(String, String),
     Close,
     Ignore,
+    SurfaceSize(SurfaceId, Size),
 }
 
 #[derive(Clone)]
@@ -40,7 +43,7 @@ struct OsdService {
     output: cosmic::iced::futures::channel::mpsc::Sender<Msg>,
 }
 
-#[zbus::interface(name = "io.github.cosmic_utils.ExternalMonitorOsd")]
+#[zbus::interface(name = "io.github.cosmic_utils.ExternalOsd")]
 impl OsdService {
     async fn show_brightness(&self, brightness: f64) {
         let mut output = self.output.clone();
@@ -136,22 +139,17 @@ impl ActiveOsd {
 
     fn new(content: Content) -> (Self, Task<Msg>) {
         let id = SurfaceId::unique();
-        let width = content.width() as u32;
         let surface = cosmic::surface::surface_task(simple_layer_shell(
             || LiveSettings {
-                corners: Some(CornerRadius {
-                    top_left: OSD_RADIUS,
-                    top_right: OSD_RADIUS,
-                    bottom_right: OSD_RADIUS,
-                    bottom_left: OSD_RADIUS,
-                }),
+                corners: Some(CornerRadius::default()),
                 ..Default::default()
             },
             move || SctkLayerSurfaceSettings {
                 id,
-                namespace: "io.github.cosmic_utils.external-monitor-osd".into(),
+                namespace: "io.github.cosmic_utils.external-osd".into(),
                 layer: Layer::Overlay,
-                size: Some((Some(width), Some(52))),
+                size: None,
+                size_limits: Limits::NONE.min_width(1.0).min_height(1.0),
                 anchor: Anchor::BOTTOM,
                 output: IcedOutput::Active,
                 keyboard_interactivity: KeyboardInteractivity::None,
@@ -193,6 +191,17 @@ struct App {
 }
 
 impl App {
+    fn corner_radius_for(&self, height: f32) -> CornerRadius {
+        let radius = self.core.system_theme().cosmic().radius_l();
+        let limit = (height.max(0.0) / 2.0) as u32;
+        CornerRadius {
+            top_left: radius[0].min(limit as f32) as u32,
+            top_right: radius[1].min(limit as f32) as u32,
+            bottom_left: radius[2].min(limit as f32) as u32,
+            bottom_right: radius[3].min(limit as f32) as u32,
+        }
+    }
+
     fn show(&mut self, content: Content) -> Task<Msg> {
         if let Some(active) = &mut self.active {
             if active.content.is_audio() == content.is_audio() {
@@ -221,22 +230,33 @@ impl App {
             ),
             Content::Audio { name, icon } => (icon.as_str(), name.clone(), None),
         };
-        let mut row = cosmic::iced::widget::row![
-            widget::container(widget::icon::from_name(icon_name).size(20))
-                .center_x(Length::Fixed(32.0)),
-            widget::text::body(label)
-                .width(Length::Fixed(if content.is_audio() { 180.0 } else { 78.0 }))
-                .center(),
-        ]
-        .align_y(Alignment::Center)
-        .spacing(8);
-        if let Some(progress) = progress {
-            row = row.push(
-                widget::determinate_linear(progress)
+        let row = if content.is_audio() {
+            // Matching left and right icon slots keeps the output name centered.
+            cosmic::iced::widget::row![
+                widget::container(widget::icon::from_name(icon_name).size(20))
+                    .center_x(Length::Fixed(32.0)),
+                widget::text::body(label)
+                    .width(Length::Fixed(112.0))
+                    .center(),
+                widget::Space::new().width(Length::Fixed(32.0)),
+            ]
+            .align_y(Alignment::Center)
+            .spacing(8)
+        } else {
+            // Matches the installed cosmic-osd value OSD layout.
+            iced::widget::row![
+                widget::container(widget::icon::from_name(icon_name).size(20))
+                    .center_x(Length::Fixed(32.0)),
+                widget::text::body(label)
+                    .width(Length::Fixed(32.0))
+                    .center(),
+                widget::space::horizontal().width(Length::Fixed(8.0)),
+                widget::determinate_linear(progress.expect("brightness has progress"))
                     .girth(4)
-                    .width(Length::Fixed(220.0)),
-            );
-        }
+                    .width(Length::Fixed(266.0)),
+            ]
+            .align_y(Alignment::Center)
+        };
         let contents = row
             .apply(widget::container)
             .width(Length::Fixed(width))
@@ -259,10 +279,16 @@ impl App {
                     snap: true,
                 }
             }));
-        widget::container(contents)
-            .align_x(Alignment::Center)
-            .align_bottom(Length::Shrink)
-            .into()
+        widget::autosize::autosize(
+            widget::container(contents)
+                .align_x(Alignment::Center)
+                .width(Length::Shrink)
+                .align_bottom(Length::Shrink),
+            OSD_ID.clone(),
+        )
+        .min_width(1.0)
+        .min_height(1.0)
+        .into()
     }
 }
 
@@ -285,7 +311,16 @@ impl cosmic::Application for App {
     }
 
     fn subscription(&self) -> Subscription<Msg> {
-        Subscription::run_with("external-monitor-osd-dbus", |_| dbus_subscription())
+        Subscription::batch([
+            Subscription::run_with("external-osd-dbus", |_| dbus_subscription()),
+            listen_with(|event, _, id| match event {
+                event::Event::Window(iced::window::Event::Opened { size, .. })
+                | event::Event::Window(iced::window::Event::Resized(size)) => {
+                    Some(Msg::SurfaceSize(id, size))
+                }
+                _ => None,
+            }),
+        ])
     }
 
     fn update(&mut self, msg: Msg) -> Task<Msg> {
@@ -297,6 +332,13 @@ impl cosmic::Application for App {
                 .take()
                 .map_or_else(Task::none, |active| destroy_layer_surface(active.id)),
             Msg::Ignore => Task::none(),
+            Msg::SurfaceSize(id, size) => self
+                .active
+                .as_ref()
+                .filter(|active| active.id == id && size.height >= 2.0)
+                .map_or_else(Task::none, |_| {
+                    corner_radius(id, Some(self.corner_radius_for(size.height))).discard()
+                }),
         }
     }
 
